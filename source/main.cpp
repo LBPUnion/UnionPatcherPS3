@@ -7,7 +7,7 @@
 #include <sstream>
 #include <map>
 
-// There's a bug in the standard library that breaks std::to_string LMAO here's my fix
+// There's a bug in the standard library that breaks std::to_string() LMAO here's my fix
 namespace patch
 {
     template < typename T > std::string to_string( const T& n )
@@ -109,13 +109,6 @@ static void do_flip()
 	flip();
 }
 
-// Hash char arrays so I can compare them. This is an absolutely disgusting hack but this is my first ever writing stuff in C++
-// and this one guy who thought this up had lots of upvotes on Stackoverflow.
-constexpr unsigned int hash(const char *s, int off = 0)
-{                        
-    return !s[off] ? 0 : (hash(s, off+1)*33) ^ s[off];                           
-}
-
 int main(int argc,char *argv[])
 {
 	printf("UnionPatcher UI starting...\n");
@@ -128,11 +121,19 @@ int main(int argc,char *argv[])
 	sysFSDirent dir;
 	size_t read;
 
+	int e_fd;
+	sysFSDirent e_dir;
+	size_t e_read;
+
 	// String for storing all of the names of different installations found on internal storage
 	std::string installationsFriendlyNames = "";
 
 	// Integer for tracking number of installations so I can reflect that in the UI (lol) and actually check to see if I find ANY installations
-	int installationsCount;
+	int installationsCount = 0;
+
+	// Store string to give notification of broken installations
+	std::string brokenInstalls = "";
+	int brokenInstallsCount = 0;
 
 	// Initialize 1mb buffer in system memory for RSX (i think)
  	void *host_addr = memalign(1024*1024,HOST_SIZE);
@@ -166,9 +167,36 @@ int main(int argc,char *argv[])
 
 						if(gameIDRealNames.count(patch::to_string(dir.d_name)) > 0)
 						{
-							printf(" Yes!\n");
-							installationsCount++;
-							installationsFriendlyNames += gameIDRealNames.at(patch::to_string(dir.d_name)) + "\n";
+							// Bool to check whether or not EBOOT.BIN exists
+							bool ebootExists = false;
+
+							// Inside path to check EBOOT
+							std::string path = "/dev_hdd0/game/" + patch::to_string(dir.d_name) + "/USRDIR/";
+							sysFsOpendir(path.c_str(), &e_fd);
+        					if(e_fd >= 0)
+        					{
+								while(!sysFsReaddir(e_fd, &e_dir, &e_read) && e_read)
+								{
+									if(patch::to_string(e_dir.d_name) == patch::to_string("EBOOT.BIN"))
+									{
+										ebootExists = true;
+									}
+									do_flip();
+								}
+								sysFsClosedir(e_fd);
+							}
+
+							if(ebootExists)
+							{
+								printf(" Yes!\n");
+								installationsCount++;
+								installationsFriendlyNames += gameIDRealNames.at(patch::to_string(dir.d_name)) + "\n";
+							}
+							else
+							{
+								printf(" Directory name matched but no EBOOT.BIN is present in USRDIR\n");
+								brokenInstallsCount++;
+							}
 						}
 						else
 						{
@@ -183,20 +211,25 @@ int main(int argc,char *argv[])
             sysFsClosedir(fd);
         }
 
+		// Check for broken installs
+		if(brokenInstallsCount > 0)
+		{
+			brokenInstalls = "We also found " + patch::to_string(brokenInstallsCount) + " LBP install directories without EBOOT.BIN files. These may be corrupted.";
+		}
+
 	// Prompt the user depending on whether or not any LBP installations were found on internal storage
 	if(installationsCount > 0)
 	{
 		printf("Matching LBP installation found! :)\n");
-		printf(installationsFriendlyNames.c_str());
 		dialogType = (msgType)(MSG_DIALOG_NORMAL | MSG_DIALOG_BTN_TYPE_OK | MSG_DIALOG_DISABLE_CANCEL_ON);
-		std::string message = "UnionPatcher found the following installations on your internal storage:\n\n" + installationsFriendlyNames + "\nDo you want to continue?";
+		std::string message = "UnionPatcher found the following installations on your internal storage:\n\n" + installationsFriendlyNames + "\n" + brokenInstalls + "\n\nDo you want to continue?";
 		msgDialogOpen2(dialogType, message.c_str(), dialog_handler,NULL,NULL);
 	}
 	else
 	{
 		printf("No matching LBP installation found :(\n");
 		dialogType = (msgType)(MSG_DIALOG_NORMAL | MSG_DIALOG_BTN_TYPE_OK | MSG_DIALOG_DISABLE_CANCEL_ON);
-		msgDialogOpen2(dialogType,"UnionPatcher could not find any valid installations of LittleBigPlanet to patch. Ensure you have booted your copy of LittleBigPlanet 1, 2, or 3 at least once to copy all neccessary game files to your internal storage.\n\nIf you have completed this step, and you're still getting this error, let us know on GitHub;\n\nhttps://www.github.com/lbpunion/unionpatcherps3/issues",dialog_handler,NULL,NULL);
+		msgDialogOpen2(dialogType, ("UnionPatcher could not find any valid installations of LittleBigPlanet to patch. Ensure you have booted your copy of LittleBigPlanet 1, 2, or 3 at least once to copy all neccessary game files to your internal storage. If you have completed this step, and you're still getting this error, let us know on GitHub;\n\nhttps://www.github.com/lbpunion/unionpatcherps3/issues\n\n"+ brokenInstalls).c_str(), dialog_handler,NULL,NULL);
 	}
 	
 	// Wait for the dialog_action (value of last pressed button) to change, we're basically resetting the controller button state and waiting for any key
