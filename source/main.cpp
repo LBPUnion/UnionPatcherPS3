@@ -1,3 +1,7 @@
+  /////////////////////
+ ////   IMPORTS   ////
+/////////////////////
+
 // C++ standard library
 #include <stdio.h>
 #include <stdarg.h>
@@ -18,17 +22,21 @@ namespace patch
     }
 }
 
-// psl1ght stuff
+// psl1ght libraries
 #include <io/pad.h>
 #include <ppu-lv2.h>
 #include <lv2/sysfs.h>
 #include <sysutil/msg.h>
 #include <sysutil/sysutil.h>
 
-// local thing - rsxutil does basic boilerplate stuff that I don't want to worry about, helpers is the same thing
+// local dependencies - rsxutil does basic boilerplate stuff that I don't want to worry about, helpers is the same thing
 #include "rsxutil.h"
 #include "helpers.cpp"
 #include "constants.cpp"
+
+  /////////////////////
+ ////  THE CODE   ////
+/////////////////////
 
 // Store the value of the button pressed so we can do stuff with it in code
 static vs32 dialog_action = 0;
@@ -55,12 +63,19 @@ static void dialog_handler(msgButton button,void *usrData)
 
 int main(int argc,char *argv[])
 {
+	// Run program_exit_callback() at program exit (why does the sample do this all the way up here??)
+	atexit(program_exit_callback);
+
+	// Register the exit callback
+	sysUtilRegisterCallback(SYSUTIL_EVENT_SLOT0,sysutil_exit_callback,NULL);
+
+	// Constant messages so I can figure out where tf I am while I'm """"debugging"""" (you don't get breakpoints in RPCS3)
 	printf("UnionPatcher UI starting...\n");
 
 	// Create instance of msgType (dialogType) we'll use this later
 	msgType dialogType;
 
-	// Stuff for reading directories that I completely forgot, thanks IRISMAN source code
+	// Stuff for reading directories that I completely forgot, thanks IRISMAN source code for the example
 	int fd;
 	sysFSDirent dir;
 	size_t read;
@@ -69,13 +84,13 @@ int main(int argc,char *argv[])
 	sysFSDirent e_dir;
 	size_t e_read;
 
-	// String for storing all of the names of different installations found on internal storage
+	// String for storing all of the names of different installations found on internal storage and displaying them in the UI
 	std::string installationsFriendlyNames = "";
 
 	// Integer for tracking number of installations so I can reflect that in the UI (lol) and actually check to see if I find ANY installations
 	int installationsCount = 0;
 
-	// Store string to give notification of broken installations
+	// String to give notification of broken installations (if more than 0 broken installs are detected)
 	std::string brokenInstalls = "";
 	int brokenInstallsCount = 0;
 
@@ -85,14 +100,33 @@ int main(int argc,char *argv[])
 	// Initialize the RSX (rsxutil.cpp)
 	init_screen(host_addr,HOST_SIZE);
 
-	// Initialize controllers (with up to 1 player)
+	// Initialize controller (with up to 1 player) (rsxutil.cpp)
 	ioPadInit(1);
 
-	// Run program_exit_callback() at program exit (why does the sample do this all the way up here??)
-	atexit(program_exit_callback);
 
-	// Register the exit callback
-	sysUtilRegisterCallback(SYSUTIL_EVENT_SLOT0,sysutil_exit_callback,NULL);
+	// Let's start doing some fun UI things like showing a quick menu explaining the usage of this utility
+	//
+	// Screen 1
+
+	// Set dialogue type
+	dialogType = (msgType)(MSG_DIALOG_NORMAL | MSG_DIALOG_BTN_TYPE_YESNO);
+
+	// Open dialogue with message
+	msgDialogOpen2(dialogType, "UnionPatcherPS3 - a tool brought to you by LoganTGT & LBP Union\n\nLBP Union's UnionPatcherPS3 will assist you in preparing your installation(s) of LittleBigPlanet 1, 2, or 3 to connect to Project: Lighthouse and other compatible custom servers. Before continuing, please ensure you have a copy of LittleBigPlanet installed to your internal storage, and all avaiable updates have been installed.\n\nDo you want to continue?", dialog_handler,NULL,NULL);
+
+	// Wait for the dialog_action (value of last pressed button) to change, we're basically resetting the controller button state and waiting for any key
+	dialog_action = 0;
+	while(!dialog_action)		
+		do_flip(); // ALWAYS DO FLIP or the app doesn't keep track of when events are getting fired and you're screwed
+
+	// We just got out of that while loop, so lets see what button the user pressed and act on it. Return 0 if O/exit was pressed else continue execution
+	if(dialog_action == 2)
+	{
+		return 0;
+	}
+
+	// Abort message box once we get our answer
+	msgDialogAbort();
 
 	// Read /dev_hdd0/game/ and find game installations
 	printf("Checking /dev_hdd0/game/ for LittleBigPlanet Installations...\n");
@@ -165,8 +199,8 @@ int main(int argc,char *argv[])
 	if(installationsCount > 0)
 	{
 		printf("Matching LBP installation found! :)\n");
-		dialogType = (msgType)(MSG_DIALOG_NORMAL | MSG_DIALOG_BTN_TYPE_OK | MSG_DIALOG_DISABLE_CANCEL_ON);
-		std::string message = "UnionPatcher found the following installations on your internal storage:\n\n" + installationsFriendlyNames + "\n" + brokenInstalls + "\n\nDo you want to continue?";
+		dialogType = (msgType)(MSG_DIALOG_NORMAL | MSG_DIALOG_BTN_TYPE_YESNO);
+		std::string message = "UnionPatcher found the following installations on your internal storage:\n\n" + installationsFriendlyNames + "\n" + brokenInstalls + "\nIf this seems correct, select Yes to continue.\n\nDo you want to continue?";
 		msgDialogOpen2(dialogType, message.c_str(), dialog_handler,NULL,NULL);
 	}
 	else
@@ -182,9 +216,15 @@ int main(int argc,char *argv[])
 		// ALWAYS DO FLIP or the app doesn't keep track of when events are getting fired and you're screwed
 		do_flip();
 
+	// We just got out of that while loop, so lets see what button the user pressed and act on it. Return 0 if O/exit was pressed else continue execution
+	if(dialog_action == 2)
+	{
+		return 0;
+	}
+
 	// Abort message box once we get our answer
 	msgDialogAbort();
-	
+
     printf("UnionPatcher finished!\n");
 
 	// Exit the program (goodbye!)
