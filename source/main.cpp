@@ -10,6 +10,7 @@
 #include <string>
 #include <sstream>
 #include <map>
+#include <forward_list>
 
 // There's a bug in the standard library that breaks std::to_string() LMAO here's my fix
 namespace patch
@@ -31,7 +32,7 @@ namespace patch
 
 // local dependencies - rsxutil does basic boilerplate stuff that I don't want to worry about, helpers is the same thing
 #include "rsxutil.h"
-#include "helpers.cpp"
+#include "utils.cpp"
 #include "constants.cpp"
 
   /////////////////////
@@ -90,12 +91,17 @@ int main(int argc,char *argv[])
 	// Integer for tracking number of installations so I can reflect that in the UI (lol) and actually check to see if I find ANY installations
 	int installationsCount = 0;
 
-	// String to give notification of broken installations (if more than 0 broken installs are detected)
+	// String to give notification of broken or DLC installations (if more than 0 broken installs are detected)
 	std::string brokenInstalls = "";
+
+	// Integer to store number of broken/DLC installs
 	int brokenInstallsCount = 0;
 
 	// Initialize 1mb buffer in system memory for RSX (i think)
  	void *host_addr = memalign(1024*1024,HOST_SIZE);
+
+	// Keep track of whether or not EBOOT backups were found immedately after scanning
+	bool ebootBackupsExistAfterScan;
 
 	// Initialize the RSX (rsxutil.cpp)
 	init_screen(host_addr,HOST_SIZE);
@@ -103,16 +109,15 @@ int main(int argc,char *argv[])
 	// Initialize controller (with up to 1 player) (rsxutil.cpp)
 	ioPadInit(1);
 
-
-	// Let's start doing some fun UI things like showing a quick menu explaining the usage of this utility
-	//
-	// Screen 1
+	/// Let's start doing some fun UI things like showing a quick menu explaining the usage of this utility
+	///
+	/// Screen 1
 
 	// Set dialogue type
 	dialogType = (msgType)(MSG_DIALOG_NORMAL | MSG_DIALOG_BTN_TYPE_YESNO);
 
 	// Open dialogue with message
-	msgDialogOpen2(dialogType, "UnionPatcherPS3 - a tool brought to you by LoganTGT & LBP Union\n\nLBP Union's UnionPatcherPS3 will assist you in preparing your installation(s) of LittleBigPlanet 1, 2, or 3 to connect to Project: Lighthouse and other compatible custom servers. Before continuing, please ensure you have a copy of LittleBigPlanet installed to your internal storage, and all avaiable updates have been installed.\n\nDo you want to continue?", dialog_handler,NULL,NULL);
+	msgDialogOpen2(dialogType, "UnionPatcherPS3 - a tool brought to you by LoganTGT & LBP Union\n\nLBP Union's UnionPatcherPS3 will assist you in preparing your installation(s) of LittleBigPlanet 1, 2, or 3 to connect to Project: Lighthouse and other compatible custom servers. Before continuing, please ensure that you have an applicable copy of LittleBigPlanet installed to your internal storage, and all available updates have been installed.\n\nDo you want to continue?", dialog_handler,NULL,NULL);
 
 	// Wait for the dialog_action (value of last pressed button) to change, we're basically resetting the controller button state and waiting for any key
 	dialog_action = 0;
@@ -128,7 +133,9 @@ int main(int argc,char *argv[])
 	// Abort message box once we get our answer
 	msgDialogAbort();
 
-	// Read /dev_hdd0/game/ and find game installations
+	/// The user gave us the OK to continue, let's start scanning for LBP installations to patch. These are some simple filesystem operations
+	///
+	/// Read /dev_hdd0/game/ and find game installations
 	printf("Checking /dev_hdd0/game/ for LittleBigPlanet Installations...\n");
 
 	// Opendir opens the directory for... Reading
@@ -145,8 +152,11 @@ int main(int argc,char *argv[])
 
 						if(gameIDRealNames.count(patch::to_string(dir.d_name)) > 0)
 						{
-							// Bool to check whether or not EBOOT.BIN exists
+							// Bool to store whether or not EBOOT.BIN exists
 							bool ebootExists = false;
+
+							// Bool to store whether or not EBOOT.BIN.bak exists
+							bool ebootBakExists = false;
 
 							// Inside path to check EBOOT
 							std::string path = "/dev_hdd0/game/" + patch::to_string(dir.d_name) + "/USRDIR/";
@@ -155,24 +165,41 @@ int main(int argc,char *argv[])
         					{
 								while(!sysFsReaddir(e_fd, &e_dir, &e_read) && e_read)
 								{
+									// Check for presence of a regular EBOOT
 									if(patch::to_string(e_dir.d_name) == patch::to_string("EBOOT.BIN"))
 									{
 										ebootExists = true;
+
+										// Check for presence of a backup EBOOT
+										if(patch::to_string(e_dir.d_name) == patch::to_string("EBOOT.BIN.BAK"))
+										{
+											ebootBakExists = true;
+										}
 									}
 									do_flip();
 								}
 								sysFsClosedir(e_fd);
 							}
 
+							ebootBackupsExistAfterScan = ebootBakExists;
+
 							if(ebootExists)
 							{
 								printf(" Yes!\n");
 								installationsCount++;
 								installationsFriendlyNames += gameIDRealNames.at(patch::to_string(dir.d_name)) + "\n";
+
+								if(!ebootBakExists)
+								{
+									printf("Backing up EBOOT.BIN to EBOOT.BIN.bak...\n");
+									std::string path1 = "/dev_hdd0/game/" + patch::to_string(dir.d_name) + "/USRDIR/EBOOT.BIN";
+									std::string path2 = "/dev_hdd0/game/" + patch::to_string(dir.d_name) + "/USRDIR/EBOOT.BIN.BAK";
+									CopyFile(path1.c_str(), path2.c_str());
+								}
 							}
 							else
 							{
-								printf(" Directory name matched but no EBOOT.BIN is present in USRDIR\n");
+								printf(" Directory name matched but no EBOOT.BIN is present in USRDIR, probably DLC folder\n");
 								brokenInstallsCount++;
 							}
 						}
@@ -180,8 +207,6 @@ int main(int argc,char *argv[])
 						{
 							printf(" No!\n");
 						}
-
-
 				// keep checking for events
 				do_flip();
 			}
@@ -192,20 +217,22 @@ int main(int argc,char *argv[])
 		// Check for broken installs
 		if(brokenInstallsCount > 0)
 		{
-			brokenInstalls = "We also found " + patch::to_string(brokenInstallsCount) + " LBP install directories without EBOOT.BIN files. These may be corrupted.";
+			brokenInstalls = "We also found " + patch::to_string(brokenInstallsCount) + " LBP install directories without EBOOT.BIN files. These are probably additional DLC.\n";
 		}
 
-	// Prompt the user depending on whether or not any LBP installations were found on internal storage
+	/// We scanned the drive and we know what we're working with. 
+	///
+	/// Prompt the user depending on whether or not any LBP installations were found on internal storage
 	if(installationsCount > 0)
 	{
 		printf("Matching LBP installation found! :)\n");
 		dialogType = (msgType)(MSG_DIALOG_NORMAL | MSG_DIALOG_BTN_TYPE_YESNO);
-		std::string message = "UnionPatcher found the following installations on your internal storage:\n\n" + installationsFriendlyNames + "\n" + brokenInstalls + "\nIf this seems correct, select Yes to continue.\n\nDo you want to continue?";
+		std::string message = "UnionPatcher found the following installations on your internal storage:\n\n" + installationsFriendlyNames + "\n" + brokenInstalls + "\nIf this seems correct, select Yes to continue.";
 		msgDialogOpen2(dialogType, message.c_str(), dialog_handler,NULL,NULL);
 	}
 	else
 	{
-		printf("No matching LBP installation found :(\n");
+		printf("No matching LBP installation found! :(\n");
 		dialogType = (msgType)(MSG_DIALOG_NORMAL | MSG_DIALOG_BTN_TYPE_OK | MSG_DIALOG_DISABLE_CANCEL_ON);
 		msgDialogOpen2(dialogType, ("UnionPatcher could not find any valid installations of LittleBigPlanet to patch. Ensure you have booted your copy of LittleBigPlanet 1, 2, or 3 at least once to copy all neccessary game files to your internal storage. If you have completed this step, and you're still getting this error, let us know on GitHub;\n\nhttps://www.github.com/lbpunion/unionpatcherps3/issues\n\n"+ brokenInstalls).c_str(), dialog_handler,NULL,NULL);
 	}
@@ -224,6 +251,43 @@ int main(int argc,char *argv[])
 
 	// Abort message box once we get our answer
 	msgDialogAbort();
+
+	// Open dialogue with message
+	if(!ebootBackupsExistAfterScan)
+	{
+		// Set dialogue type
+		dialogType = (msgType)(MSG_DIALOG_NORMAL | MSG_DIALOG_BTN_TYPE_YESNO);
+
+		msgDialogOpen2(dialogType, ("We went ahead and took the liberty of backing up all of your EBOOT.BIN files for you for each game that we found - these will be in your USRDIR folders as EBOOT.BIN.BAK. DO NOT DELETE THESE!\n\nWithout them, you will be unable to restore the game to its original state without reinstalling.", dialog_handler,NULL,NULL);
+		
+		// Wait for the dialog_action (value of last pressed button) to change, we're basically resetting the controller button state and waiting for any key
+		dialog_action = 0;
+		while(!dialog_action)		
+			do_flip(); // ALWAYS DO FLIP or the app doesn't keep track of when events are getting fired and you're screwed
+	}
+
+	// We just got out of that while loop, so lets see what button the user pressed and act on it. Return 0 if O/exit was pressed else continue execution
+	if(dialog_action == 2)
+	{
+		return 0;
+	}
+
+	// Set dialogue type
+	dialogType = (msgType)(MSG_DIALOG_NORMAL | MSG_DIALOG_BTN_TYPE_YESNO);
+
+	// Open dialogue with message
+	msgDialogOpen2(dialogType, ("UnionPatcher will now attempt to patch your installation(s) of LittleBigPlanet to connect to LBP Union's Project: Lighthouse servers. At this time, only copies of LittleBigPlanet 1/2/3 installed from an optical disc are supported - PSN installations will be ignored.\n\nDo you want to continue?", dialog_handler,NULL,NULL);
+		
+	// Wait for the dialog_action (value of last pressed button) to change, we're basically resetting the controller button state and waiting for any key
+	dialog_action = 0;
+	while(!dialog_action)		
+		do_flip(); // ALWAYS DO FLIP or the app doesn't keep track of when events are getting fired and you're screwed
+
+	// We just got out of that while loop, so lets see what button the user pressed and act on it. Return 0 if O/exit was pressed else continue execution
+	if(dialog_action == 2)
+	{
+		return 0;
+	}
 
     printf("UnionPatcher finished!\n");
 
