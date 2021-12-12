@@ -25,42 +25,14 @@ namespace patch
 #include <sysutil/msg.h>
 #include <sysutil/sysutil.h>
 
-// local thing - rsxutil does basic boilerplate stuff that I don't want to worry about
+// local thing - rsxutil does basic boilerplate stuff that I don't want to worry about, helpers is the same thing
 #include "rsxutil.h"
-
-// Map of all LBP Game IDs to title names. This is really important for us to scan for installations and reflect it in the UI
-const std::map<std::string, std::string> gameIDRealNames = 
-{
-	// LBP1
-	{"BCUS98148", "LittleBigPlanet™ [US] [Disc]"},
-	{"BCES00141", "LittleBigPlanet™ [EU] [Disc]"},
-	{"NPUA80472", "LittleBigPlanet™ [US] [PSN]"},
-	{"NPEA00241", "LittleBigPlanet™ [EU] [PSN]"},
-	{"BCUS98208", "LittleBigPlanet™ Game of the Year Edition [US] [Disc]"},
-	{"BCES00611", "LittleBigPlanet™ Game of the Year Edition [EU] [Disc]"},
-
-	// LBP2
-	{"BCUS98245", "LittleBigPlanet™ 2 [US] [Disc]"},
-	{"BCES01086", "LittleBigPlanet™ 2 [EU] [Disc]"},
-	{"BCES00850", "LittleBigPlanet™ 2 [EU] [Disc]"},
-	{"BCAS20113", "LittleBigPlanet™ 2 [AS] [Disc]"},
-	{"NPUA80662", "LittleBigPlanet™ 2 [US] [PSN]"},
-	{"NPEA00324", "LittleBigPlanet™ 2 [EU] [PSN]"},
-	{"BCUS98372", "LittleBigPlanet™ 2: Special Edition [US] [Disc]"},
-	{"BCES01693", "LittleBigPlanet™ 2 Extras Edition [EU] [Disc]"},
-	{"BCES01694", "LittleBigPlanet™ 2 Extras Edition [EU] [Disc]"},
-
-	// LBP3
-	{"BCUS98362", "LittleBigPlanet™ 3 [US] [Disc]"},
-	{"BCES02068", "LittleBigPlanet™ 3 [EU] [Disc]"},
-	{"BCES01663", "LittleBigPlanet™ 3 [EU] [Disc]"},
-	{"NPUA81116", "LittleBigPlanet™ 3 [US] [PSN]"}
-};
+#include "helpers.cpp"
+#include "constants.cpp"
 
 // Store the value of the button pressed so we can do stuff with it in code
 static vs32 dialog_action = 0;
 
-extern "C" {
 // dialog_handler uses the button pressed to set the value of the dialog_action integer
 static void dialog_handler(msgButton button,void *usrData)
 {
@@ -79,34 +51,6 @@ static void dialog_handler(msgButton button,void *usrData)
 		default:
 			break;
 	}
-}
-
-static void program_exit_callback()
-{
-	gcmSetWaitFlip(context);
-	rsxFinish(context,1);
-}
-
-static void sysutil_exit_callback(u64 status,u64 param,void *usrdata)
-{
-	switch(status)
-	{
-		case SYSUTIL_EXIT_GAME:
-			break;
-		case SYSUTIL_DRAW_BEGIN:
-		case SYSUTIL_DRAW_END:
-			break;
-		default:
-			break;
-	}
-}
-}
-
-// Check for new events (checks pending callback functions is my best way of trying to understand this)
-static void do_flip()
-{
-	sysUtilCheckCallback();
-	flip();
 }
 
 int main(int argc,char *argv[])
