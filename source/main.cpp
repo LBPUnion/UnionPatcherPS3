@@ -29,11 +29,20 @@ namespace patch
 #include <lv2/sysfs.h>
 #include <sysutil/msg.h>
 #include <sysutil/sysutil.h>
+#include <sysutil/osk.h>
+#include <sys/memory.h>
 
 // local dependencies - rsxutil does basic boilerplate stuff that I don't want to worry about, helpers is the same thing
 #include "rsxutil.h"
 #include "apputil.cpp"
 #include "constants.cpp"
+
+// Definitions and things I think
+#define TEXT_BUFFER_LENGTH 256
+oskInputFieldInfo inputFieldInfo;
+oskParam parameters;
+oskCallbackReturnParam outputParam;
+bool isRunningOSK = false;
 
   /////////////////////
  ////  THE CODE   ////
@@ -62,6 +71,47 @@ static void dialog_handler(msgButton button,void *usrData)
 	}
 }
 
+static void sysutil_exit_callback(u64 status,u64 param,void *usrdata)
+{
+	switch(status)
+	{
+		case SYSUTIL_EXIT_GAME:
+			break;
+		case SYSUTIL_DRAW_BEGIN:
+		case SYSUTIL_DRAW_END:
+			break;
+		case SYSUTIL_OSK_LOADED:
+			printf("OSK loaded\n");
+			break;
+		case SYSUTIL_OSK_INPUT_CANCELED:
+			printf("OSK input canceled\n");
+			oskAbort();
+			// fall-through
+		case SYSUTIL_OSK_DONE:
+			if (status == SYSUTIL_OSK_DONE)
+			{
+				printf("OSK done\n");
+			}
+			oskUnloadAsync(&outputParam);
+
+			if (outputParam.res == OSK_OK)
+			{
+				printf("OSK result OK\n");
+			}
+			else
+			{
+				printf("OKS result: %d\n", outputParam.res);
+			}
+			break;
+		case SYSUTIL_OSK_UNLOADED:
+			printf("OSK unloaded\n");
+			isRunningOSK = false;
+			break;
+		default:
+			break;
+	}
+}
+
 int main(int argc,char *argv[])
 {
 	// Run program_exit_callback() at program exit (why does the sample do this all the way up here??)
@@ -69,6 +119,28 @@ int main(int argc,char *argv[])
 
 	// Register the exit callback
 	sysUtilRegisterCallback(SYSUTIL_EVENT_SLOT0,sysutil_exit_callback,NULL);
+
+	// Stuff for the on-screen keyboard
+	static uint16_t title_utf16[TEXT_BUFFER_LENGTH];
+    static uint16_t input_text_utf16[TEXT_BUFFER_LENGTH];
+    static uint16_t initial_text_utf16[TEXT_BUFFER_LENGTH];
+    static uint8_t input_text_utf8[TEXT_BUFFER_LENGTH];
+
+	// Configure the title and initial text of the keyboard, and a maximum length
+	inputFieldInfo.message = title_utf16;
+	inputFieldInfo.startText = initial_text_utf16;
+	inputFieldInfo.maxLength = TEXT_BUFFER_LENGTH - 1;
+
+	// Configure the type of panel
+	parameters.allowedPanels = OSK_PANEL_TYPE_DEFAULT;
+	parameters.firstViewPanel = OSK_PANEL_TYPE_DEFAULT;
+	parameters.controlPoint = (oskPoint) { 0, 0 };
+	parameters.prohibitFlags = OSK_PROHIBIT_RETURN; // This will disable entering a new line
+	
+	// Configure where the osk will write its result
+	outputParam.res = OSK_OK;
+	outputParam.len = TEXT_BUFFER_LENGTH - 1;
+	outputParam.str = input_text_utf16;
 
 	// Constant messages so I can figure out where tf I am while I'm """"debugging"""" (you don't get breakpoints in RPCS3)
 	printf("UnionPatcher UI starting...\n");
@@ -141,67 +213,67 @@ int main(int argc,char *argv[])
 
 	// Opendir opens the directory for... Reading
 	sysFsOpendir("/dev_hdd0/game/", &fd);
-        if(fd >= 0)
-        {
-			// We recursively read the directory to see what's inside
-            while(!sysFsReaddir(fd, &dir, &read) && read)
-			{
-				// Report our findings to console
-				printf("Found directory /dev_hdd0/game/");
-				printf(dir.d_name);	
-				printf(" - checking to see if it's an LBP installation...");
+    if(fd >= 0)
+    {
+		// We recursively read the directory to see what's inside
+        while(!sysFsReaddir(fd, &dir, &read) && read)
+		{
+			// Report our findings to console
+			printf("Found directory /dev_hdd0/game/");
+			printf(dir.d_name);	
+			printf(" - checking to see if it's an LBP installation...");
 
-						if(gameIDRealNames.count(patch::to_string(dir.d_name)) > 0)
-						{
-							// Bool to store whether or not EBOOT.BIN exists
-							bool ebootExists = false;
+					if(gameIDRealNames.count(patch::to_string(dir.d_name)) > 0)
+					{
+						// Bool to store whether or not EBOOT.BIN exists
+						bool ebootExists = false;
 
-							// Inside path to check EBOOT
-							std::string path = "/dev_hdd0/game/" + patch::to_string(dir.d_name) + "/USRDIR/";
-							sysFsOpendir(path.c_str(), &e_fd);
-        					if(e_fd >= 0)
-        					{
-								while(!sysFsReaddir(e_fd, &e_dir, &e_read) && e_read)
+						// Inside path to check EBOOT
+						std::string path = "/dev_hdd0/game/" + patch::to_string(dir.d_name) + "/USRDIR/";
+						sysFsOpendir(path.c_str(), &e_fd);
+        				if(e_fd >= 0)
+        				{
+							while(!sysFsReaddir(e_fd, &e_dir, &e_read) && e_read)
+							{
+								// Check for presence of a regular EBOOT
+								if(patch::to_string(e_dir.d_name) == patch::to_string("EBOOT.BIN"))
 								{
-									// Check for presence of a regular EBOOT
-									if(patch::to_string(e_dir.d_name) == patch::to_string("EBOOT.BIN"))
-									{
-										ebootExists = true;
-									}
-									// Check for presence of a backup EBOOT
-									if(patch::to_string(e_dir.d_name) == patch::to_string("EBOOT.BIN.BAK"))
-									{
-										ebootBakExists = true;
-									}
-									do_flip();
+									ebootExists = true;
 								}
-								sysFsClosedir(e_fd);
+								// Check for presence of a backup EBOOT
+								if(patch::to_string(e_dir.d_name) == patch::to_string("EBOOT.BIN.BAK"))
+								{
+									ebootBakExists = true;
+								}
+								do_flip();
 							}
+							sysFsClosedir(e_fd);
+						}
 
-							if(ebootExists)
-							{
-								printf(" Yes!\n");
-								installationsCount++;
-								installationsFriendlyNames += gameIDRealNames.at(patch::to_string(dir.d_name)) + "\n";
-							}
-							else
-							{
-								printf(" Directory name matched but no EBOOT.BIN is present in USRDIR, probably DLC folder\n");
-								brokenInstallsCount++;
-							}
-							
-							if(ebootExists && !ebootBakExists)
-							{
-								printf("Backing up EBOOT.BIN to EBOOT.BIN.bak...\n");
-								std::string path1 = "/dev_hdd0/game/" + patch::to_string(dir.d_name) + "/USRDIR/EBOOT.BIN";
-								std::string path2 = "/dev_hdd0/game/" + patch::to_string(dir.d_name) + "/USRDIR/EBOOT.BIN.BAK";
-								CopyFile(path1.c_str(), path2.c_str());
-							}
+						if(ebootExists)
+						{
+							printf(" Yes!\n");
+							installationsCount++;
+							installationsFriendlyNames += gameIDRealNames.at(patch::to_string(dir.d_name)) + "\n";
 						}
 						else
 						{
-							printf(" No!\n");
+							printf(" Directory name matched but no EBOOT.BIN is present in USRDIR, probably DLC folder\n");
+							brokenInstallsCount++;
 						}
+							
+						if(ebootExists && !ebootBakExists)
+						{
+							printf("Backing up EBOOT.BIN to EBOOT.BIN.bak...\n");
+							std::string path1 = "/dev_hdd0/game/" + patch::to_string(dir.d_name) + "/USRDIR/EBOOT.BIN";
+							std::string path2 = "/dev_hdd0/game/" + patch::to_string(dir.d_name) + "/USRDIR/EBOOT.BIN.BAK";
+							CopyFile(path1.c_str(), path2.c_str());
+						}
+					}
+					else
+					{
+						printf(" No!\n");
+					}
 				// keep checking for events
 				do_flip();
 			}
@@ -266,7 +338,7 @@ int main(int argc,char *argv[])
 	dialogType = (msgType)(MSG_DIALOG_NORMAL | MSG_DIALOG_BTN_TYPE_YESNO);
 
 	// Open dialogue with message
-	msgDialogOpen2(dialogType, ("UnionPatcher will now attempt to patch your installation(s) of LittleBigPlanet to connect to Project: Lighthouse servers.\n\nDo you want to continue?"), dialog_handler,NULL,NULL);
+	msgDialogOpen2(dialogType, ("UnionPatcher will now attempt to patch your installation(s) of LittleBigPlanet to connect to Project: Lighthouse servers. On the next screen, you'll be presented with an keyboard to put your desired server URL in, such as http://lighthouse.lbpunion.com/LITTLEBIGPLANETPS3_XML\n\nDo you want to continue?"), dialog_handler,NULL,NULL);
 		
 	// Wait for the dialog_action (value of last pressed button) to change, we're basically resetting the controller button state and waiting for any key
 	dialog_action = 0;
@@ -279,6 +351,51 @@ int main(int argc,char *argv[])
 		printf("User aborted!\n");
 		return 0;
 	}
+
+	// At this point we can load up the on-screen keyboard and see what the output looks like
+	s32 res = 0;
+	sys_mem_container_t containerid;
+	res = sysMemContainerCreate(&containerid, 4 * 1024 * 1024);
+	if (res != 0)
+	{
+        printf("Error sysMemContainerCreate: %08x\n", res);
+		return 0;
+	}
+
+	oskSetInitialInputDevice(OSK_DEVICE_PAD);
+	oskSetKeyLayoutOption(OSK_FULLKEY_PANEL);
+	oskSetLayoutMode(OSK_LAYOUTMODE_HORIZONTAL_ALIGN_CENTER | OSK_LAYOUTMODE_VERTICAL_ALIGN_CENTER);
+
+	res = oskLoadAsync(containerid, &parameters, &inputFieldInfo);
+	if (res != 0)
+	{
+        printf("Error oskLoadAsync: %08x\n", res);
+		sysUtilUnregisterCallback(SYSUTIL_EVENT_SLOT0);
+		sysMemContainerDestroy(containerid);
+		return 0;
+	}
+
+	printf("Running OSK\n");
+
+	isRunningOSK = true;
+
+	while (isRunningOSK)
+	{
+		do_flip();
+	}
+	
+	sysUtilUnregisterCallback(SYSUTIL_EVENT_SLOT0);
+	sysMemContainerDestroy(containerid);
+
+	if (outputParam.res != OSK_OK)
+	{
+        printf("Keyboard cancelled\n");
+		return 0;
+	}
+
+	// Convert UTF16 to UTF8
+	utf16_to_utf8(outputParam.str, input_text_utf8);
+	printf("Got input: %s", input_text_utf8);
 
     printf("UnionPatcher finished!\n");
 
