@@ -97,11 +97,11 @@ int main(int argc,char *argv[])
 	// Integer to store number of broken/DLC installs
 	int brokenInstallsCount = 0;
 
+	// Bool to store whether or not EBOOT.BIN.bak exists
+	bool ebootBakExists = false;
+
 	// Initialize 1mb buffer in system memory for RSX (i think)
  	void *host_addr = memalign(1024*1024,HOST_SIZE);
-
-	// Keep track of whether or not EBOOT backups were found immedately after scanning
-	bool ebootBackupsExistAfterScan = true;
 
 	// Initialize the RSX (rsxutil.cpp)
 	init_screen(host_addr,HOST_SIZE);
@@ -127,6 +127,7 @@ int main(int argc,char *argv[])
 	// We just got out of that while loop, so lets see what button the user pressed and act on it. Return 0 if O/exit was pressed else continue execution
 	if(dialog_action == 2)
 	{
+		printf("User aborted!\n");
 		return 0;
 	}
 
@@ -155,9 +156,6 @@ int main(int argc,char *argv[])
 							// Bool to store whether or not EBOOT.BIN exists
 							bool ebootExists = false;
 
-							// Bool to store whether or not EBOOT.BIN.bak exists
-							bool ebootBakExists = false;
-
 							// Inside path to check EBOOT
 							std::string path = "/dev_hdd0/game/" + patch::to_string(dir.d_name) + "/USRDIR/";
 							sysFsOpendir(path.c_str(), &e_fd);
@@ -169,38 +167,35 @@ int main(int argc,char *argv[])
 									if(patch::to_string(e_dir.d_name) == patch::to_string("EBOOT.BIN"))
 									{
 										ebootExists = true;
-
-										// Check for presence of a backup EBOOT
-										if(patch::to_string(e_dir.d_name) == patch::to_string("EBOOT.BIN.BAK"))
-										{
-											ebootBakExists = true;
-										}
+									}
+									// Check for presence of a backup EBOOT
+									if(patch::to_string(e_dir.d_name) == patch::to_string("EBOOT.BIN.BAK"))
+									{
+										ebootBakExists = true;
 									}
 									do_flip();
 								}
 								sysFsClosedir(e_fd);
 							}
 
-							ebootBackupsExistAfterScan = ebootBakExists;
-
 							if(ebootExists)
 							{
 								printf(" Yes!\n");
 								installationsCount++;
 								installationsFriendlyNames += gameIDRealNames.at(patch::to_string(dir.d_name)) + "\n";
-
-								if(ebootBackupsExistAfterScan == false)
-								{
-									printf("Backing up EBOOT.BIN to EBOOT.BIN.bak...\n");
-									std::string path1 = "/dev_hdd0/game/" + patch::to_string(dir.d_name) + "/USRDIR/EBOOT.BIN";
-									std::string path2 = "/dev_hdd0/game/" + patch::to_string(dir.d_name) + "/USRDIR/EBOOT.BIN.BAK";
-									CopyFile(path1.c_str(), path2.c_str());
-								}
 							}
 							else
 							{
 								printf(" Directory name matched but no EBOOT.BIN is present in USRDIR, probably DLC folder\n");
 								brokenInstallsCount++;
+							}
+							
+							if(ebootExists && !ebootBakExists)
+							{
+								printf("Backing up EBOOT.BIN to EBOOT.BIN.bak...\n");
+								std::string path1 = "/dev_hdd0/game/" + patch::to_string(dir.d_name) + "/USRDIR/EBOOT.BIN";
+								std::string path2 = "/dev_hdd0/game/" + patch::to_string(dir.d_name) + "/USRDIR/EBOOT.BIN.BAK";
+								CopyFile(path1.c_str(), path2.c_str());
 							}
 						}
 						else
@@ -246,6 +241,7 @@ int main(int argc,char *argv[])
 	// We just got out of that while loop, so lets see what button the user pressed and act on it. Return 0 if O/exit was pressed else continue execution
 	if(dialog_action == 2)
 	{
+		printf("User aborted!\n");
 		return 0;
 	}
 
@@ -253,7 +249,7 @@ int main(int argc,char *argv[])
 	msgDialogAbort();
 
 	// Open dialogue with message
-	if(!ebootBackupsExistAfterScan)
+	if(!ebootBakExists)
 	{
 		// Set dialogue type
 		dialogType = (msgType)(MSG_DIALOG_NORMAL | MSG_DIALOG_BTN_TYPE_OK);
@@ -280,6 +276,7 @@ int main(int argc,char *argv[])
 	// We just got out of that while loop, so lets see what button the user pressed and act on it. Return 0 if O/exit was pressed else continue execution
 	if(dialog_action == 2)
 	{
+		printf("User aborted!\n");
 		return 0;
 	}
 
