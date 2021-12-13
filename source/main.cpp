@@ -32,7 +32,7 @@ namespace patch
 
 // local dependencies - rsxutil does basic boilerplate stuff that I don't want to worry about, helpers is the same thing
 #include "rsxutil.h"
-#include "utils.cpp"
+#include "apputil.cpp"
 #include "constants.cpp"
 
   /////////////////////
@@ -101,7 +101,7 @@ int main(int argc,char *argv[])
  	void *host_addr = memalign(1024*1024,HOST_SIZE);
 
 	// Keep track of whether or not EBOOT backups were found immedately after scanning
-	bool ebootBackupsExistAfterScan;
+	bool ebootBackupsExistAfterScan = true;
 
 	// Initialize the RSX (rsxutil.cpp)
 	init_screen(host_addr,HOST_SIZE);
@@ -189,7 +189,7 @@ int main(int argc,char *argv[])
 								installationsCount++;
 								installationsFriendlyNames += gameIDRealNames.at(patch::to_string(dir.d_name)) + "\n";
 
-								if(!ebootBakExists)
+								if(ebootBackupsExistAfterScan == false)
 								{
 									printf("Backing up EBOOT.BIN to EBOOT.BIN.bak...\n");
 									std::string path1 = "/dev_hdd0/game/" + patch::to_string(dir.d_name) + "/USRDIR/EBOOT.BIN";
@@ -256,9 +256,9 @@ int main(int argc,char *argv[])
 	if(!ebootBackupsExistAfterScan)
 	{
 		// Set dialogue type
-		dialogType = (msgType)(MSG_DIALOG_NORMAL | MSG_DIALOG_BTN_TYPE_YESNO);
+		dialogType = (msgType)(MSG_DIALOG_NORMAL | MSG_DIALOG_BTN_TYPE_OK);
 
-		msgDialogOpen2(dialogType, ("We went ahead and took the liberty of backing up all of your EBOOT.BIN files for you for each game that we found - these will be in your USRDIR folders as EBOOT.BIN.BAK. DO NOT DELETE THESE!\n\nWithout them, you will be unable to restore the game to its original state without reinstalling.", dialog_handler,NULL,NULL);
+		msgDialogOpen2(dialogType, ("UnionPatcher has also backed up your LittleBigPlanet EBOOT.BIN files - these will be in your USRDIR folders for each game as EBOOT.BIN.BAK. DO NOT DELETE THESE!\n\nWithout them, you will be unable to restore the game to its original state without reinstalling."), dialog_handler,NULL,NULL);
 		
 		// Wait for the dialog_action (value of last pressed button) to change, we're basically resetting the controller button state and waiting for any key
 		dialog_action = 0;
@@ -266,17 +266,11 @@ int main(int argc,char *argv[])
 			do_flip(); // ALWAYS DO FLIP or the app doesn't keep track of when events are getting fired and you're screwed
 	}
 
-	// We just got out of that while loop, so lets see what button the user pressed and act on it. Return 0 if O/exit was pressed else continue execution
-	if(dialog_action == 2)
-	{
-		return 0;
-	}
-
 	// Set dialogue type
 	dialogType = (msgType)(MSG_DIALOG_NORMAL | MSG_DIALOG_BTN_TYPE_YESNO);
 
 	// Open dialogue with message
-	msgDialogOpen2(dialogType, ("UnionPatcher will now attempt to patch your installation(s) of LittleBigPlanet to connect to LBP Union's Project: Lighthouse servers. At this time, only copies of LittleBigPlanet 1/2/3 installed from an optical disc are supported - PSN installations will be ignored.\n\nDo you want to continue?", dialog_handler,NULL,NULL);
+	msgDialogOpen2(dialogType, ("UnionPatcher will now attempt to patch your installation(s) of LittleBigPlanet to connect to Project: Lighthouse servers.\n\nDo you want to continue?"), dialog_handler,NULL,NULL);
 		
 	// Wait for the dialog_action (value of last pressed button) to change, we're basically resetting the controller button state and waiting for any key
 	dialog_action = 0;

@@ -1,21 +1,12 @@
 // C++ standard library
-#include <stdio.h>
-#include <stdarg.h>
 #include <stdlib.h>
-#include <malloc.h>
-#include <string>
-#include <sstream>
-#include <map>
-#include <sys/stat.h>
 
 // psl1ght stuff
-#include <io/pad.h>
-#include <ppu-lv2.h>
 #include <lv2/sysfs.h>
-#include <sysutil/msg.h>
 #include <sysutil/sysutil.h>
+#include <sys/stat.h>
 
-// local thing - rsxutil does basic boilerplate stuff that I don't want to worry about
+// load RSXUtil, some basic boilerplate code for initializing the RSX and stuff that I don't want to worry about
 #include "rsxutil.h"
 
 // Check for new events (checks pending callback functions is my best way of trying to understand this)
@@ -45,7 +36,7 @@ static void sysutil_exit_callback(u64 status,u64 param,void *usrdata)
 	}
 }
 
-int CopyFile(const char *source, const char *dest){
+static int CopyFile(const char *source, const char *dest){
 	s32 src = -1;
 	s32 dst = -1;
 	sysFSStat stats;

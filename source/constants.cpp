@@ -1,10 +1,6 @@
 // C++ standard library
-#include <stdio.h>
-#include <stdarg.h>
 #include <stdlib.h>
-#include <malloc.h>
 #include <string>
-#include <sstream>
 #include <map>
 
 
